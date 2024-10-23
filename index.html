@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facial Keypoints</title>
+</head>
+<body>
+    <h1>Sube una imagen para detectar los puntos faciales</h1>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file">
+        <input type="submit" value="Subir imagen">
+    </form>
+
+    {% if image_file %}
+        <h2>Resultado:</h2>
+        <img src="{{ url_for('static', filename='uploads/' ~ image_file) }}" alt="Imagen procesada con puntos faciales">
+    {% endif %}
+</body>
+</html>
+
+    <div class="container">
+        <h1>Upload and Process Your Image</h1>
+
+        <!-- Formulario para subir archivos -->
+        <form action="{{ url_for('upload_file') }}" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file" accept="image/*" required>
+            <br>
+            <button type="submit" class="button">Upload and Process</button>
+        </form>
+
+        <!-- Mostrar la imagen subida -->
+        {% if image_file %}
+        <h2>Uploaded Image:</h2>
+        <img src="{{ url_for('static', filename='uploads/' + image_file) }}" alt="Uploaded Image">
+
+        <!-- Mostrar la imagen procesada (output.png) -->
+        <h2>Processed Image:</h2>
+        <img src="{{ url_for('static', filename='uploads/output.png') }}" alt="Processed Image">
+        {% endif %}
+    </div>
+
+</body>
+</html>
