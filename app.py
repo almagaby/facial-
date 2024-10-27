@@ -1,25 +1,37 @@
-from flask import Flask, render_template, request, redirect, url_for
 import os
-import random
+import threading
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from flask import Flask, render_template, request, redirect, url_for
 from PIL import Image
 import gdown
+import cv2  # OpenCV para detección de rostros
+import dlib  # Dlib para puntos faciales
 
-app = Flask(__name__)
+app = Flask(_name_)
 
 # Configuración para la carga de archivos
 app.config['UPLOAD_FOLDER'] = 'static/uploads/'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB
 
-# Descargar el archivo CSV de Google Drive
-file_id = '1AVLqLvgjue64xuT6okTdN0XnM2Gceccx'  # Reemplaza esto con tu FILE_ID
-gdown_url = f'https://drive.google.com/uc?id={file_id}'
-gdown.download(gdown_url, 'data.csv', quiet=False)
+# Descargar archivo CSV (solo si no existe)
+csv_file = 'data.csv'
+if not os.path.exists(csv_file):
+    file_id = '1vJPJZU88lo6nFSQC9i9e4y-eUujJfXia'    
+    gdown_url = f'https://drive.google.com/file/d/1vJPJZU88lo6nFSQC9i9e4y-eUujJfXia/view?usp={file_id}'
+    
+    gdown.download(gdown_url, csv_file, quiet=False)
 
-# Cargar el DataFrame (con puntos clave)
-keyfacial_df = pd.read_csv('data.csv')
+# Cargar puntos faciales del DataFrame
+keyfacial_df = pd.read_csv(csv_file)
+
+# Ruta al predictor de puntos faciales (asegúrate de que el archivo exista)
+PREDICTOR_PATH = "shape_predictor_68_face_landmarks.dat"
+
+# Precargar el detector y el predictor una vez al iniciar
+face_detector = dlib.get_frontal_face_detector()
+landmark_predictor = dlib.shape_predictor(PREDICTOR_PATH)
 
 @app.route('/')
 def index():
@@ -33,58 +45,58 @@ def upload_file():
     file = request.files['file']
     if file.filename == '':
         return redirect(request.url)
-    
+
     if file:
         filename = file.filename
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
 
-        # Procesar la imagen
-        process_image(filepath)
+        # Procesar la imagen en un hilo separado
+        threading.Thread(target=process_image, args=(filepath,)).start()
         return render_template('index.html', image_file='output.png')
 
 def process_image(filepath):
-    # Cargar la imagen original
-    img = Image.open(filepath).convert('L')  # Convertir a escala de grises
-    original_size = img.size  # Obtener las dimensiones originales de la imagen (ancho, alto)
-    img_arr = np.array(img)  # Convertir la imagen a un array de NumPy
+    """Procesa la imagen cargada y guarda los puntos faciales."""
+    # Reducir resolución para acelerar el procesamiento (máx 800x800)
+    img = Image.open(filepath).convert('L')
+    img.thumbnail((800, 800))  # Redimensionar sin perder proporción
+    img_arr = np.array(img)
 
-    # Crear una figura para graficar con los números de los ejes visibles
-    fig, ax = plt.subplots(figsize=(6, 6))  # Tamaño ajustado de la imagen
-    ax.imshow(img_arr, cmap='gray')
-    
-    # Seleccionar un índice aleatorio para los puntos faciales
-    k = random.randint(0, len(keyfacial_df) - 1)  # Seleccionamos una fila aleatoria del DataFrame
-    
-    # Asumimos que las coordenadas de los puntos faciales están en una escala de 96x96 píxeles
-    original_scale = 96  # Escala original del dataset de puntos faciales
+    # Detectar rostros
+    faces = face_detector(img_arr)
+    if len(faces) == 0:
+        print("No se detectó ningún rostro.")
+        return  # Detener si no hay rostros
 
-    # Definir la región donde está el rostro (centrar la escala en una porción de la imagen)
-    face_width = int(original_size[0] * 0.5)  # Ajustar el ancho de la cara como un 60% del ancho de la imagen
-    face_height = int(original_size[1] * 0.5)  # Ajustar el alto de la cara como un 60% del alto de la imagen
-    offset_x = (original_size[0] - face_width) // 2  # Calcular el desplazamiento en x para centrar la cara
-    offset_y = (original_size[1] - face_height) // 2  # Calcular el desplazamiento en y para centrar la cara
+    # Usar el primer rostro detectado
+    face = faces[0]
+    landmarks = landmark_predictor(img_arr, face)
 
-    # Dibujar los puntos faciales en la imagen
-    for j in range(1, 31, 2):  # Asumimos que hay 30 puntos (15 pares de x, y)
-        x_original = keyfacial_df.loc[k][j-1]  # Coordenada X
-        y_original = keyfacial_df.loc[k][j]    # Coordenada Y
+    # Crear la figura y graficar los puntos faciales
+    plt.figure(figsize=(img.width / 100, img.height / 100))
+    plt.imshow(img_arr, cmap='gray')
+    plt.axis('off')
 
-        # Escalar los puntos faciales para que coincidan con las dimensiones de la región facial de la imagen
-        x_scaled = (x_original / original_scale) * face_width + offset_x
-        y_scaled = (y_original / original_scale) * face_height + offset_y
+    # Definir los puntos clave que queremos mostrar (cejas, ojos, nariz y boca)
+    # Cejas: 2 puntos en cada una (17, 21 para ceja izquierda; 22, 26 para ceja derecha)
+    key_points = [17, 21, 22, 26]  
+    # Ojos: 3 puntos en cada uno (36, 39, 37 para ojo izquierdo; 42, 45, 43 para ojo derecho)
+    key_points += [36, 39, 37, 42, 45, 43]  
+    # Nariz: 1 punto central (33)
+    key_points += [30]  
+    # Boca: 4 puntos clave (48, 54 en las comisuras, 51 en el labio superior, 57 en el labio inferior)
+    key_points += [48, 54, 51, 57]
 
-        # Graficar los puntos faciales en rojo ('rx') sobre la imagen
-        ax.plot(x_scaled, y_scaled, 'rx', markersize=5)
-    
-    # Mostrar los ejes con números (coordenadas X, Y)
-    ax.set_xlim(0, original_size[0])
-    ax.set_ylim(original_size[1], 0)  # El eje Y está invertido en las imágenes
+    # Graficar todos los puntos faciales en rojo
+    for n in key_points:
+        x = landmarks.part(n).x
+        y = landmarks.part(n).y
+        plt.plot(x, y, 'rx', markersize=5)  # "x" roja en todos los puntos
 
-    # Guardar la imagen con los puntos faciales
-    plt.savefig(os.path.join(app.config['UPLOAD_FOLDER'], 'output.png'), bbox_inches='tight', pad_inches=0)
+    # Guardar la imagen procesada
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], 'output.png')
+    plt.savefig(output_path, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-
-if __name__ == '_main_':
+if _name_ == '_main_':
     app.run(debug=True)
